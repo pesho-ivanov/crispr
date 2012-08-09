@@ -28,13 +28,13 @@ const double  mu      = 5e-7;           // Virus mutation rate [1/h]
 
 formula N = c0+c1;                      // number of all cells
 
-// for each (cell & virus)
-formula immune = OR for every allele 'k': (c_wt[k]=1 & v_al[k]=0) | (c_mut[k]=1 & v_al[k]=1);
+formula new_cell_strain = min 'i' such that c[i]=0
+formula new_virus_strain = min 'i' such that v[i]=0
 
 module rates
   // for every virus 'v' & cell 'c'
-  [lysis_when_not_immune] immune=0 & c>0 & v>0 -> (1.0-q)*(1-immune)*c*v*phi  : true;
-  [lysis_when_immune]     immune=1 & c>0 & v>0 -> p*immune*c*v*phi            : true; 
+  [lysis_when_not_immune] c_immune[v]=0 & c>0 & v>0 -> (1.0-q)*(1-c_immune[v])*c*v*phi  : true;
+  [lysis_when_immune]     c_immune[v]=1 & c>0 & v>0 -> p*c_immune[v]*c*v*phi            : true; 
 
   // for every cell 'c'
   [div]  (N<K) & (c>0) ->   r*c*(1.0-N/K) : true;
@@ -58,16 +58,17 @@ module cell_strain[CELL_STRAINS]
   [lysis_when_not_immune] c>0 -> (c'=c-1);
   [lysis_when_immune]     c>0 -> (c'=c-1);
 
-  // TODO: syncronize with the others correctly
-  // for every allele 'k'
-  [lysis_when_not_immune] v_al[k]=0 -> q : (new cell_strain(c'=1, c_wt'=c_wt|(0,0,...,0,1,0,...0), c_mut'=c_mut) & c'=c-1);
-  [lysis_when_not_immune] v_al[k]=1 -> q : (new cell_strain(c'=1, c_wt'=c_wt, c_mut'=c_mut|(0,0,...,0,1,0,...0)) & c'=c-1);
+  // new strain possible for every virus 'k'
+  [lysis_when_not_immune] v_al[k]=0 & new_cell_strain<CELL_STRAINS -> q :
+      cell_strain[new_cell_strain].c'=1 &
+      cell_strain[new_cell_strain].c_immune'=(c_immune xor (1<<k)) &
+      c'=c-1;
 endmodule
 
 // array of virus strains
 module virus_strain[VIRUS_STRAINS]
   v : int;                                          // number of viruses of this strain
-  v_almost_immune_cells[CELL_STRAINS] : [0..1];     // whether cell strain 'i' can obtain immunity to this virus strain by only one mutation 
+  v_almost_immune_cell: [0..CELL_STRAINS-1];     // whether cell strain 'i' can obtain immunity to this virus strain by only one mutation 
 
   // for every cell
   [lysis_when_not_immune] v>0 -> (v'=v+beta);
@@ -76,8 +77,10 @@ module virus_strain[VIRUS_STRAINS]
   [infection]             v>0 -> (v'=v-1);
   [deactivation]          v>0 -> (v'=v-1);
 
-  // mutation for every allele 'k'
-  [lysis_when_not_immune] true -> mu : (new virus_strain(v'=1, v_al'=v_al^(0,0,...,0,1,0,...0)) & v'=v-1);
-  [lysis_when_immune]     true -> mu : --- || ---
+  // mutation for every cell 'k'
+  [lysis_when_immune] true -> mu :
+      virus_strain[new_virus_strain].v'=1 &
+      virus_strain[new_virus_strain].v_almost_immune_cell'=k &
+      v'=v-1);
 endmodule
 
